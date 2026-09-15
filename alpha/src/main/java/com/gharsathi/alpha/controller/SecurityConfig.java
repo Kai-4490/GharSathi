@@ -17,15 +17,14 @@ import java.util.List;
  * NOTE: this isn't a @RestController - it lives in the controller/ package only because
  * the project structure is fixed to 4 folders (entity, controller, repository, response).
  *
- * ================================================================================
- * SECURITY CURRENTLY DISABLED FOR FRONTEND DEV - permitAll() on everything below.
- * Before submission/production, revert authorizeHttpRequests back to:
- *   .requestMatchers("/api/auth/**").permitAll()
- *   .requestMatchers("/api/admin/**").hasRole("ADMIN")
- *   .anyRequest().authenticated()
- * The JwtAuthFilter is still wired in and still issues/reads tokens correctly -
- * only the enforcement (authorizeHttpRequests) has been loosened.
- * ================================================================================
+ * - /api/auth/**  -> open (register/verify-otp/request-otp/login all happen before a token exists)
+ * - /ws/**        -> open (WebSocket handshake - no token check implemented at the STOMP level yet;
+ *                    the chat itself doesn't verify who's connecting, just flagging that gap)
+ * - /api/admin/** -> requires ROLE_ADMIN
+ * - everything else -> requires a valid JWT (any authenticated role)
+ *
+ * Stateless: no HTTP sessions, no CSRF (irrelevant for a token-based JSON API),
+ * no form login. JwtAuthFilter runs before Spring Security's own auth filter.
  */
 @Configuration
 public class SecurityConfig {
@@ -45,7 +44,10 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

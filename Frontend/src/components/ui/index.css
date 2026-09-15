@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design tokens - derived from the brand palette established in the original
+  design pass (deep indigo / warm marigold / sage-grey / muted rust / soft green),
+  converted to shadcn's HSL-triplet convention so Tailwind utilities like
+  bg-primary and text-muted-foreground resolve correctly.
+*/
+@layer base {
+  :root {
+    --background: 150 10% 95%;       /* pale sage-grey page bg */
+    --foreground: 221 46% 20%;       /* deep indigo - primary text */
+
+    --card: 0 0% 100%;
+    --card-foreground: 221 46% 20%;
+
+    --primary: 36 79% 58%;           /* warm marigold - primary actions */
+    --primary-foreground: 221 46% 16%;
+
+    --secondary: 150 12% 91%;        /* light neutral - secondary actions */
+    --secondary-foreground: 221 46% 20%;
+
+    --muted: 150 12% 91%;
+    --muted-foreground: 222 20% 42%; /* ink-soft */
+
+    --accent: 150 12% 91%;
+    --accent-foreground: 221 46% 20%;
+
+    --destructive: 8 46% 44%;        /* muted rust */
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 119 22% 40%;          /* soft green */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 74% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 150 7% 85%;
+    --input: 150 7% 85%;
+    --ring: 36 79% 58%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  h1, h2, h3 {
+    @apply font-display;
+  }
+}

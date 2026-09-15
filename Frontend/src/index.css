@@ -1,0 +1,241 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design tokens - derived from the brand palette (deep indigo / warm marigold /
+  sage-grey / muted rust / soft green), in shadcn's HSL-triplet convention so
+  Tailwind utilities (bg-primary, text-muted-foreground, etc.) resolve correctly.
+  Used by the new src/components/ui/* primitives only, for now.
+*/
+@layer base {
+  :root {
+    --background: 150 10% 95%;
+    --foreground: 221 46% 20%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 221 46% 20%;
+
+    --primary: 36 79% 58%;
+    --primary-foreground: 221 46% 16%;
+
+    --secondary: 150 12% 91%;
+    --secondary-foreground: 221 46% 20%;
+
+    --muted: 150 12% 91%;
+    --muted-foreground: 222 20% 42%;
+
+    --accent: 150 12% 91%;
+    --accent-foreground: 221 46% 20%;
+
+    --destructive: 8 46% 44%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 119 22% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 74% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 150 7% 85%;
+    --input: 150 7% 85%;
+    --ring: 36 79% 58%;
+
+    --radius: 0.5rem;
+  }
+}
+
+/* ============================================================
+   LEGACY STYLES - used by pages not yet migrated to Tailwind/shadcn
+   (Register, Login, VerifyOtp, Profile, Dashboard, NavBar).
+   Do not delete until Phase 4 converts each of those pages -
+   removing this early breaks their layout, as it just did.
+   ============================================================ */
+
+:root {
+  --color-ink: #1B2A4A;
+  --color-ink-soft: #4A5875;
+  --color-bg: #EEF1F0;
+  --color-surface: #FFFFFF;
+  --color-accent: #E8A33D;
+  --color-accent-dark: #C6811E;
+  --color-rust: #A64B3D;
+  --color-green: #5B8C5A;
+  --color-border: #D8DDDA;
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'IBM Plex Sans', -apple-system, sans-serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+  --space-7: 64px;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  line-height: 1.15;
+  margin: 0;
+  color: var(--color-ink);
+}
+
+h1 { font-size: 2.5rem; font-weight: 600; }
+h2 { font-size: 1.75rem; }
+h3 { font-size: 1.25rem; }
+
+p {
+  margin: 0 0 var(--space-3) 0;
+  max-width: 62ch;
+}
+
+a {
+  color: var(--color-ink);
+}
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: var(--space-6) var(--space-4);
+}
+
+.auth-shell {
+  max-width: 420px;
+  width: 100%;
+}
+
+.auth-shell h1 {
+  margin-bottom: var(--space-2);
+}
+
+.auth-subtitle {
+  color: var(--color-ink-soft);
+  margin-bottom: var(--space-5);
+}
+
+.field {
+  margin-bottom: var(--space-4);
+}
+
+.field label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-ink-soft);
+  margin-bottom: var(--space-1);
+}
+
+.field input,
+.field select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-color: var(--color-accent);
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 13px 20px;
+  background: var(--color-accent);
+  color: var(--color-ink);
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-dark);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-ink-soft);
+  text-decoration: underline;
+  font-size: 0.9rem;
+  padding: 0;
+}
+
+.banner {
+  padding: var(--space-3);
+  border-radius: 6px;
+  margin-bottom: var(--space-4);
+  font-size: 0.9rem;
+}
+
+.banner-error {
+  background: #F7E9E6;
+  color: var(--color-rust);
+  border: 1px solid #E8C4BD;
+}
+
+.banner-dev-otp {
+  background: #FBF0DC;
+  color: var(--color-accent-dark);
+  border: 1px solid #F0D9A6;
+  font-family: var(--font-body);
+}
+
+.banner-dev-otp strong {
+  font-size: 1.1rem;
+  letter-spacing: 1px;
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.navbar-brand {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.navbar-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.9rem;
+  color: var(--color-ink-soft);
+}
