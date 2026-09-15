@@ -3,17 +3,19 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
+    <!--suppress BOOT_VERSION_VALIDATION_CODE -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.4</version>
+           <!-- Commercial support for this Spring Boot line is available through Tanzu Spring Runtime:
+               https://spring.io/support (through 2026-12-31). -->
+           <version>3.5.16</version>
         <relativePath/>
     </parent>
 
     <groupId>com.gharsathi</groupId>
     <artifactId>alpha</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.2-SNAPSHOT</version>
     <name>alpha</name>
     <description>Gharsaathi - Roommate and Flat Sharing Application</description>
 
