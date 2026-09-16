@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import NavBar from '../components/NavBar'
+import AppShell from '../components/layout/app-shell'
 import { useAuth } from '../context/AuthContext'
 import { getProfile, upsertProfile } from '../api/profile'
 
@@ -98,29 +98,26 @@ export default function Profile() {
 
   if (loading) {
     return (
-      <div className="page">
-        <NavBar />
-        <div className="page-content"><p>Loading your profile...</p></div>
-      </div>
+      <AppShell>
+        <p>Loading your profile...</p>
+      </AppShell>
     )
   }
 
   return (
-    <div className="page">
-      <NavBar />
-      <div className="page-content" style={{ alignItems: 'flex-start' }}>
-        <div style={{ maxWidth: '480px', width: '100%' }}>
-          <h1>Your profile</h1>
-          <p className="auth-subtitle">
-            This is what other users see when deciding whether you're a good match.
-          </p>
+    <AppShell>
+      <div style={{ maxWidth: '480px', width: '100%' }}>
+        <h1>Your profile</h1>
+        <p className="auth-subtitle">
+          This is what other users see when deciding whether you're a good match.
+        </p>
 
-          <div style={{ marginBottom: '24px', fontSize: '0.9rem' }}>
-            Verification status:{' '}
-            <strong style={{ color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</strong>
-          </div>
+        <div style={{ marginBottom: '24px', fontSize: '0.9rem' }}>
+          Verification status:{' '}
+          <strong style={{ color: STATUS_COLOR[status] }}>{STATUS_LABEL[status]}</strong>
+        </div>
 
-          {error && <div className="banner banner-error">{error}</div>}
+        {error && <div className="banner banner-error">{error}</div>}
           {savedMessage && <div className="banner banner-dev-otp">{savedMessage}</div>}
 
           <form onSubmit={handleSubmit}>
@@ -216,8 +213,7 @@ export default function Profile() {
               {saving ? 'Saving...' : 'Save profile'}
             </button>
           </form>
-        </div>
       </div>
-    </div>
+    </AppShell>
   )
 }

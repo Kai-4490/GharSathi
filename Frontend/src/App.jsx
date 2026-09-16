@@ -6,6 +6,9 @@ import VerifyOtp from './pages/VerifyOtp'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Profile from './pages/Profile'
+import Listings from './pages/Listings'
+import ListingForm from './pages/ListingForm'
+import ListingDetail from './pages/ListingDetail'
 
 export default function App() {
   return (
@@ -29,6 +32,38 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/listings"
+            element={
+              <ProtectedRoute>
+                <Listings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/listings/new"
+            element={
+              <ProtectedRoute>
+                <ListingForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/listings/:id"
+            element={
+              <ProtectedRoute>
+                <ListingDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/listings/:id/edit"
+            element={
+              <ProtectedRoute>
+                <ListingForm />
               </ProtectedRoute>
             }
           />
