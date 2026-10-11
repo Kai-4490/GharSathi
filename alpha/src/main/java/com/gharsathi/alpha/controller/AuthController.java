@@ -3,27 +3,28 @@ package com.gharsathi.alpha.controller;
 import com.gharsathi.alpha.entity.Role;
 import com.gharsathi.alpha.entity.User;
 import com.gharsathi.alpha.repository.UserRepository;
-import com.gharsathi.alpha.response.ApiResponse;
-import com.gharsathi.alpha.response.AuthResponse;
-import com.gharsathi.alpha.response.UserResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Random;
 
 /**
  * OTP-only auth: register -> verify-otp (activates account) -> request-otp -> login.
- * No password, no session/JWT layer yet - client just holds onto the returned userId.
  * FR-1 to FR-4.
+ *
+ * DEV MODE: until an SMS provider is wired in, OTPs are printed to the server console
+ * (look for "DEV OTP") instead of being returned in the HTTP response.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -40,12 +41,12 @@ public class AuthController {
 
     // FR-1: create account
     @PostMapping("/register")
-    public ResponseEntity<ApiResponse<UserResponse>> register(@RequestBody @Valid RegisterRequest request) {
+    public User register(@RequestBody @Valid RegisterRequest request) {
         if (userRepository.existsByMobileNumber(request.mobileNumber())) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure("Mobile number already registered"));
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mobile number already registered");
         }
         if (request.email() != null && !request.email().isBlank() && userRepository.existsByEmail(request.email())) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure("Email already registered"));
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email already registered");
         }
 
         User user = User.builder()
@@ -64,45 +65,28 @@ public class AuthController {
         User saved = userRepository.save(user);
 
         // TODO: wire an actual SMS/OTP provider (SRS 3.3.3 - OTP Verification Service).
-        // Returning the OTP in the response for now so it's testable without one.
-        return ResponseEntity.ok(ApiResponse.success(
-                "Registered. OTP sent (dev mode, otp=" + otp + ")",
-                UserResponse.fromEntity(saved)
-        ));
+        log.info("DEV OTP for {}: {}", saved.getMobileNumber(), otp);
+        return saved;
     }
 
     // FR-2: verify OTP to activate the account
     @PostMapping("/verify-otp")
-    public ResponseEntity<ApiResponse<UserResponse>> verifyOtp(@RequestBody @Valid OtpVerifyRequest request) {
-        Optional<User> userOpt = userRepository.findByMobileNumber(request.mobileNumber());
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure("User not found"));
-        }
-        User user = userOpt.get();
-
-        String otpError = validateOtp(user, request.otp());
-        if (otpError != null) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure(otpError));
-        }
+    public User verifyOtp(@RequestBody @Valid OtpVerifyRequest request) {
+        User user = findByMobile(request.mobileNumber());
+        checkOtp(user, request.otp());
 
         user.setOtpVerified(true);
         clearOtp(user);
-        User saved = userRepository.save(user);
-
-        return ResponseEntity.ok(ApiResponse.success("OTP verified, account activated", UserResponse.fromEntity(saved)));
+        return userRepository.save(user);
     }
 
     // Issue a fresh OTP - used both for re-verifying registration and for login
     @PostMapping("/request-otp")
-    public ResponseEntity<ApiResponse<Void>> requestOtp(@RequestBody @Valid MobileRequest request) {
-        Optional<User> userOpt = userRepository.findByMobileNumber(request.mobileNumber());
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure("User not found"));
-        }
-        User user = userOpt.get();
+    public Map<String, String> requestOtp(@RequestBody @Valid MobileRequest request) {
+        User user = findByMobile(request.mobileNumber());
 
         if (!user.isActive()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.failure("Account is deactivated"));
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is deactivated");
         }
 
         String otp = generateOtp();
@@ -110,53 +94,46 @@ public class AuthController {
         user.setOtpGeneratedAt(LocalDateTime.now());
         userRepository.save(user);
 
-        return ResponseEntity.ok(ApiResponse.success("OTP sent (dev mode, otp=" + otp + ")", null));
+        log.info("DEV OTP for {}: {}", user.getMobileNumber(), otp);
+        return Map.of("message", "OTP sent");
     }
 
     // FR-3: log in via OTP (account must already be verified) - issues a JWT on success
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody @Valid OtpVerifyRequest request) {
-        Optional<User> userOpt = userRepository.findByMobileNumber(request.mobileNumber());
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure("User not found"));
-        }
-        User user = userOpt.get();
+    public Map<String, Object> login(@RequestBody @Valid OtpVerifyRequest request) {
+        User user = findByMobile(request.mobileNumber());
 
         if (!user.isOtpVerified()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.failure("Account not verified yet - verify OTP first"));
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account not verified yet - verify OTP first");
         }
         if (!user.isActive()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.failure("Account is deactivated"));
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is deactivated");
         }
 
-        String otpError = validateOtp(user, request.otp());
-        if (otpError != null) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure(otpError));
-        }
+        checkOtp(user, request.otp());
 
         clearOtp(user);
         User saved = userRepository.save(user);
 
         String token = jwtUtil.generateToken(saved.getId(), saved.getMobileNumber(), saved.getRole());
-        AuthResponse authResponse = AuthResponse.builder()
-                .token(token)
-                .user(UserResponse.fromEntity(saved))
-                .build();
-
-        return ResponseEntity.ok(ApiResponse.success("Login successful", authResponse));
+        return Map.of("token", token, "user", saved);
     }
 
     // ===== helpers =====
 
-    private String validateOtp(User user, String submittedOtp) {
+    private User findByMobile(String mobileNumber) {
+        return userRepository.findByMobileNumber(mobileNumber)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "User not found"));
+    }
+
+    private void checkOtp(User user, String submittedOtp) {
         if (user.getCurrentOtp() == null || !user.getCurrentOtp().equals(submittedOtp)) {
-            return "Invalid OTP";
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid OTP");
         }
         if (user.getOtpGeneratedAt() == null
                 || Duration.between(user.getOtpGeneratedAt(), LocalDateTime.now()).toMinutes() > OTP_EXPIRY_MINUTES) {
-            return "OTP expired, request a new one";
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP expired, request a new one");
         }
-        return null;
     }
 
     private void clearOtp(User user) {

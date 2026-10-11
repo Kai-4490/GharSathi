@@ -6,19 +6,16 @@ import com.gharsathi.alpha.entity.User;
 import com.gharsathi.alpha.repository.ListingRepository;
 import com.gharsathi.alpha.repository.MessageRepository;
 import com.gharsathi.alpha.repository.UserRepository;
-import com.gharsathi.alpha.response.ApiResponse;
-import com.gharsathi.alpha.response.MessageResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * In-app chat between interested users. FR-17, FR-19.
@@ -47,14 +44,15 @@ public class ChatController {
 
     // FR-17: send a message (REST path - also broadcasts to any live WebSocket subscribers)
     @PostMapping
-    public ResponseEntity<ApiResponse<MessageResponse>> sendMessage(@RequestBody @Valid SendMessageRequest request) {
+    public Message sendMessage(@RequestBody @Valid SendMessageRequest request) {
+        Message saved;
         try {
-            Message saved = persistMessage(request);
-            broadcast(saved);
-            return ResponseEntity.ok(ApiResponse.success("Message sent", MessageResponse.fromEntity(saved)));
+            saved = persistMessage(request);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure(e.getMessage()));
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
         }
+        broadcast(saved);
+        return saved;
     }
 
     // WebSocket path: client sends to /app/chat.send, server persists + broadcasts to
@@ -72,39 +70,27 @@ public class ChatController {
 
     // full conversation between two users (history load on chat screen open)
     @GetMapping("/conversation")
-    public ResponseEntity<ApiResponse<List<MessageResponse>>> getConversation(@RequestParam Long userAId,
-                                                                                @RequestParam Long userBId) {
-        List<MessageResponse> conversation = messageRepository.findConversation(userAId, userBId).stream()
-                .map(MessageResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Conversation fetched", conversation));
+    public List<Message> getConversation(@RequestParam Long userAId, @RequestParam Long userBId) {
+        return messageRepository.findConversation(userAId, userBId);
     }
 
     // FR-19: unread messages, drives notification badges client-side
     @GetMapping("/unread/{userId}")
-    public ResponseEntity<ApiResponse<List<MessageResponse>>> getUnread(@PathVariable Long userId) {
-        List<MessageResponse> unread = messageRepository.findByReceiverIdAndReadFalse(userId).stream()
-                .map(MessageResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Unread messages fetched", unread));
+    public List<Message> getUnread(@PathVariable Long userId) {
+        return messageRepository.findByReceiverIdAndReadFalse(userId);
     }
 
     @GetMapping("/unread/{userId}/count")
-    public ResponseEntity<ApiResponse<Long>> getUnreadCount(@PathVariable Long userId) {
-        long count = messageRepository.countByReceiverIdAndReadFalse(userId);
-        return ResponseEntity.ok(ApiResponse.success("Unread count fetched", count));
+    public long getUnreadCount(@PathVariable Long userId) {
+        return messageRepository.countByReceiverIdAndReadFalse(userId);
     }
 
     @PatchMapping("/{messageId}/read")
-    public ResponseEntity<ApiResponse<Void>> markRead(@PathVariable Long messageId) {
-        Optional<Message> messageOpt = messageRepository.findById(messageId);
-        if (messageOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Message not found"));
-        }
-        Message message = messageOpt.get();
+    public Message markRead(@PathVariable Long messageId) {
+        Message message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
         message.setRead(true);
-        messageRepository.save(message);
-        return ResponseEntity.ok(ApiResponse.success("Marked as read", null));
+        return messageRepository.save(message);
     }
 
     // ===== shared helpers =====
@@ -134,7 +120,7 @@ public class ChatController {
 
     private void broadcast(Message message) {
         String conversationId = buildConversationId(message.getSender().getId(), message.getReceiver().getId());
-        messagingTemplate.convertAndSend("/topic/chat/" + conversationId, MessageResponse.fromEntity(message));
+        messagingTemplate.convertAndSend("/topic/chat/" + conversationId, message);
     }
 
     // order-independent id so both participants subscribe to the same topic regardless of who's "sender"

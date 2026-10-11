@@ -4,25 +4,18 @@ import com.gharsathi.alpha.entity.*;
 import com.gharsathi.alpha.repository.ProfileRepository;
 import com.gharsathi.alpha.repository.ReportRepository;
 import com.gharsathi.alpha.repository.UserRepository;
-import com.gharsathi.alpha.response.ApiResponse;
-import com.gharsathi.alpha.response.ProfileResponse;
-import com.gharsathi.alpha.response.ReportResponse;
-import com.gharsathi.alpha.response.UserResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.StreamSupport;
 
 /**
  * Admin panel endpoints. FR-20 to FR-22.
- * NOTE: no auth/role-guard middleware exists yet - anyone can hit these URLs right now.
- * Before shipping, these need to be locked down to Role.ADMIN (e.g. via a request header
- * carrying the acting userId, checked against user.getRole(), until real auth exists).
+ * Access is restricted to ROLE_ADMIN in SecurityConfig.
  */
 @RestController
 @RequestMapping("/api/admin")
@@ -40,73 +33,49 @@ public class AdminController {
 
     // FR-20: list all users
     @GetMapping("/users")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
-        List<UserResponse> users = userRepository.findAll().stream()
-                .map(UserResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Users fetched", users));
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
     }
 
     // FR-21: deactivate a user (e.g. after acting on a report)
     @PatchMapping("/users/{userId}/deactivate")
-    public ResponseEntity<ApiResponse<Void>> deactivateUser(@PathVariable Long userId) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
-        User user = userOpt.get();
+    public User deactivateUser(@PathVariable Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
         user.setActive(false);
-        userRepository.save(user);
-        return ResponseEntity.ok(ApiResponse.success("User deactivated", null));
+        return userRepository.save(user);
     }
 
     // FR-20, FR-22: view reports, optionally filtered by status
     @GetMapping("/reports")
-    public ResponseEntity<ApiResponse<List<ReportResponse>>> getReports(
-            @RequestParam(required = false) ReportStatus status
-    ) {
-        List<Report> reports = status != null ? reportRepository.findByStatus(status) : reportRepository.findAll();
-        List<ReportResponse> response = reports.stream().map(ReportResponse::fromEntity).toList();
-        return ResponseEntity.ok(ApiResponse.success("Reports fetched", response));
+    public List<Report> getReports(@RequestParam(required = false) ReportStatus status) {
+        return status != null ? reportRepository.findByStatus(status) : reportRepository.findAll();
     }
 
     // FR-21: review a report and record the action taken
     @PatchMapping("/reports/{reportId}/review")
-    public ResponseEntity<ApiResponse<ReportResponse>> reviewReport(@PathVariable Long reportId,
-                                                                      @RequestBody @Valid ReviewRequest request) {
-        Optional<Report> reportOpt = reportRepository.findById(reportId);
-        if (reportOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Report not found"));
-        }
-        Report report = reportOpt.get();
+    public Report reviewReport(@PathVariable Long reportId, @RequestBody @Valid ReviewRequest request) {
+        Report report = reportRepository.findById(reportId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
         report.setStatus(request.status());
         report.setAdminNote(request.adminNote());
-        Report saved = reportRepository.save(report);
-        return ResponseEntity.ok(ApiResponse.success("Report reviewed", ReportResponse.fromEntity(saved)));
+        return reportRepository.save(report);
     }
 
     // FR-8: verification queue - profiles waiting on admin review
     @GetMapping("/profiles/pending-verification")
-    public ResponseEntity<ApiResponse<List<ProfileResponse>>> getPendingVerifications() {
-        Iterable<Profile> pendingProfiles = profileRepository.findByVerificationStatus(VerificationStatus.PENDING);
-        List<ProfileResponse> pending = StreamSupport.stream(pendingProfiles.spliterator(), false)
-                .map(ProfileResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Pending verifications fetched", pending));
+    public List<Profile> getPendingVerifications() {
+        Iterable<Profile> pending = profileRepository.findByVerificationStatus(VerificationStatus.PENDING);
+        return StreamSupport.stream(pending.spliterator(), false).toList();
     }
 
     // FR-8: approve/reject a profile's verification
     @PatchMapping("/profiles/{profileId}/verification")
-    public ResponseEntity<ApiResponse<ProfileResponse>> setVerificationStatus(@PathVariable Long profileId,
-                                                                                @RequestBody @Valid VerificationRequest request) {
-        Optional<Profile> profileOpt = profileRepository.findById(profileId);
-        if (profileOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Profile not found"));
-        }
-        Profile profile = profileOpt.get();
+    public Profile setVerificationStatus(@PathVariable Long profileId, @RequestBody @Valid VerificationRequest request) {
+        Profile profile = profileRepository.findById(profileId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found"));
         profile.setVerificationStatus(request.status());
-        Profile saved = profileRepository.save(profile);
-        return ResponseEntity.ok(ApiResponse.success("Verification status updated", ProfileResponse.fromEntity(saved)));
+        return profileRepository.save(profile);
     }
 
     // ===== Request DTOs =====

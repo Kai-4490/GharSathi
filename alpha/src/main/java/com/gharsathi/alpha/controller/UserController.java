@@ -5,16 +5,12 @@ import com.gharsathi.alpha.entity.User;
 import com.gharsathi.alpha.entity.VerificationStatus;
 import com.gharsathi.alpha.repository.ProfileRepository;
 import com.gharsathi.alpha.repository.UserRepository;
-import com.gharsathi.alpha.response.ApiResponse;
-import com.gharsathi.alpha.response.ProfileResponse;
-import com.gharsathi.alpha.response.UserResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
-import java.util.Optional;
 
 /**
  * Account + profile management. FR-4 to FR-8.
@@ -32,65 +28,42 @@ public class UserController {
     }
 
     @GetMapping("/{userId}")
-    public ResponseEntity<ApiResponse<UserResponse>> getUser(@PathVariable Long userId) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
-        return ResponseEntity.ok(ApiResponse.success("User fetched", UserResponse.fromEntity(userOpt.get())));
+    public User getUser(@PathVariable Long userId) {
+        return findUser(userId);
     }
 
     // FR-4: update basic account details
     @PutMapping("/{userId}")
-    public ResponseEntity<ApiResponse<UserResponse>> updateUser(@PathVariable Long userId,
-                                                                  @RequestBody @Valid UpdateUserRequest request) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
-        User user = userOpt.get();
+    public User updateUser(@PathVariable Long userId, @RequestBody @Valid UpdateUserRequest request) {
+        User user = findUser(userId);
         if (request.name() != null && !request.name().isBlank()) {
             user.setName(request.name());
         }
         if (request.email() != null && !request.email().isBlank()) {
             user.setEmail(request.email());
         }
-        User saved = userRepository.save(user);
-        return ResponseEntity.ok(ApiResponse.success("User updated", UserResponse.fromEntity(saved)));
+        return userRepository.save(user);
     }
 
     // FR-4: delete/deactivate account (soft delete)
     @DeleteMapping("/{userId}")
-    public ResponseEntity<ApiResponse<Void>> deactivateUser(@PathVariable Long userId) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
-        User user = userOpt.get();
+    public User deactivateUser(@PathVariable Long userId) {
+        User user = findUser(userId);
         user.setActive(false);
-        userRepository.save(user);
-        return ResponseEntity.ok(ApiResponse.success("Account deactivated", null));
+        return userRepository.save(user);
     }
 
     // FR-5 to FR-8: get profile
     @GetMapping("/{userId}/profile")
-    public ResponseEntity<ApiResponse<ProfileResponse>> getProfile(@PathVariable Long userId) {
-        Optional<Profile> profileOpt = profileRepository.findByUserId(userId);
-        if (profileOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Profile not found"));
-        }
-        return ResponseEntity.ok(ApiResponse.success("Profile fetched", ProfileResponse.fromEntity(profileOpt.get())));
+    public Profile getProfile(@PathVariable Long userId) {
+        return profileRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found"));
     }
 
     // FR-5, FR-6, FR-7: create or update profile (upsert)
     @PostMapping("/{userId}/profile")
-    public ResponseEntity<ApiResponse<ProfileResponse>> upsertProfile(@PathVariable Long userId,
-                                                                        @RequestBody @Valid ProfileRequest request) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
-        User user = userOpt.get();
+    public Profile upsertProfile(@PathVariable Long userId, @RequestBody @Valid ProfileRequest request) {
+        User user = findUser(userId);
 
         Profile profile = profileRepository.findByUserId(userId).orElseGet(() -> {
             Profile p = new Profile();
@@ -114,8 +87,14 @@ public class UserController {
             profile.setVerificationStatus(VerificationStatus.PENDING);
         }
 
-        Profile saved = profileRepository.save(profile);
-        return ResponseEntity.ok(ApiResponse.success("Profile saved", ProfileResponse.fromEntity(saved)));
+        return profileRepository.save(profile);
+    }
+
+    // ===== helpers =====
+
+    private User findUser(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
     }
 
     // ===== Request DTOs =====

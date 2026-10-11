@@ -5,13 +5,11 @@ import com.gharsathi.alpha.repository.ListingRepository;
 import com.gharsathi.alpha.repository.MatchRepository;
 import com.gharsathi.alpha.repository.ProfileRepository;
 import com.gharsathi.alpha.repository.UserRepository;
-import com.gharsathi.alpha.response.ApiResponse;
-import com.gharsathi.alpha.response.MatchResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
 
@@ -43,33 +41,23 @@ public class MatchController {
 
     // all matches (suggested + interested + accepted) involving a user
     @GetMapping("/user/{userId}")
-    public ResponseEntity<ApiResponse<List<MatchResponse>>> getMatchesForUser(@PathVariable Long userId) {
-        List<MatchResponse> matches = matchRepository.findAllForUser(userId).stream()
-                .map(MatchResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Matches fetched", matches));
+    public List<Match> getMatchesForUser(@PathVariable Long userId) {
+        return matchRepository.findAllForUser(userId);
     }
 
     @GetMapping("/listing/{listingId}")
-    public ResponseEntity<ApiResponse<List<MatchResponse>>> getMatchesForListing(@PathVariable Long listingId) {
-        List<MatchResponse> matches = matchRepository.findByListingId(listingId).stream()
-                .map(MatchResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Matches fetched", matches));
+    public List<Match> getMatchesForListing(@PathVariable Long listingId) {
+        return matchRepository.findByListingId(listingId);
     }
 
     // FR-15: generate/refresh scored suggestions for a seeker against all active listings
     @GetMapping("/suggestions/{userId}")
-    public ResponseEntity<ApiResponse<List<MatchResponse>>> getSuggestions(@PathVariable Long userId) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
-        Optional<Profile> myProfileOpt = profileRepository.findByUserId(userId);
-        if (myProfileOpt.isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.failure("Complete your profile first to get suggestions"));
-        }
-        Profile myProfile = myProfileOpt.get();
+    public List<Match> getSuggestions(@PathVariable Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        Profile myProfile = profileRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Complete your profile first to get suggestions"));
 
         List<Listing> candidateListings = listingRepository.findByStatus(ListingStatus.ACTIVE).stream()
                 .filter(l -> !l.getPostedBy().getId().equals(userId))
@@ -77,16 +65,16 @@ public class MatchController {
 
         List<Match> existingMatches = matchRepository.findAllForUser(userId);
 
-        List<MatchResponse> suggestions = new ArrayList<>();
+        List<Match> suggestions = new ArrayList<>();
         for (Listing listing : candidateListings) {
             Long ownerId = listing.getPostedBy().getId();
 
-            // skip if a match already exists between this pair for this listing
+            // if a match already exists between this pair for this listing, reuse it
             Optional<Match> existing = existingMatches.stream()
                     .filter(m -> m.getListing() != null && m.getListing().getId().equals(listing.getId()))
                     .findFirst();
             if (existing.isPresent()) {
-                suggestions.add(MatchResponse.fromEntity(existing.get()));
+                suggestions.add(existing.get());
                 continue;
             }
 
@@ -94,69 +82,59 @@ public class MatchController {
             double score = calculateCompatibility(myProfile, ownerProfileOpt.orElse(null), listing);
 
             Match match = Match.builder()
-                    .userOne(userOpt.get())
+                    .userOne(user)
                     .userTwo(listing.getPostedBy())
                     .listing(listing)
                     .compatibilityScore(score)
                     .status(MatchStatus.SUGGESTED)
                     .build();
 
-            Match saved = matchRepository.save(match);
-            suggestions.add(MatchResponse.fromEntity(saved));
+            suggestions.add(matchRepository.save(match));
         }
 
-        suggestions.sort((a, b) -> Double.compare(
-                b.getCompatibilityScore() == null ? 0 : b.getCompatibilityScore(),
-                a.getCompatibilityScore() == null ? 0 : a.getCompatibilityScore()
-        ));
-
-        return ResponseEntity.ok(ApiResponse.success("Suggestions generated", suggestions));
+        // highest score first
+        suggestions.sort((a, b) -> Double.compare(scoreOf(b), scoreOf(a)));
+        return suggestions;
     }
 
-    // FR-16: show interest in a listing/profile - creates (or reactivates) a Match
+    // FR-16: show interest in a listing/profile - creates a Match
     @PostMapping("/interest")
-    public ResponseEntity<ApiResponse<MatchResponse>> showInterest(@RequestBody @Valid InterestRequest request) {
-        Optional<User> userOneOpt = userRepository.findById(request.interestedUserId());
-        Optional<User> userTwoOpt = userRepository.findById(request.targetUserId());
-        if (userOneOpt.isEmpty() || userTwoOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
+    public Match showInterest(@RequestBody @Valid InterestRequest request) {
+        User userOne = userRepository.findById(request.interestedUserId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        User userTwo = userRepository.findById(request.targetUserId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
         Listing listing = null;
         if (request.listingId() != null) {
-            Optional<Listing> listingOpt = listingRepository.findById(request.listingId());
-            if (listingOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Listing not found"));
-            }
-            listing = listingOpt.get();
+            listing = listingRepository.findById(request.listingId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Listing not found"));
         }
 
         Match match = Match.builder()
-                .userOne(userOneOpt.get())
-                .userTwo(userTwoOpt.get())
+                .userOne(userOne)
+                .userTwo(userTwo)
                 .listing(listing)
                 .status(MatchStatus.INTERESTED)
                 .build();
 
-        Match saved = matchRepository.save(match);
-        return ResponseEntity.ok(ApiResponse.success("Interest recorded", MatchResponse.fromEntity(saved)));
+        return matchRepository.save(match);
     }
 
     // accept / reject a match
     @PatchMapping("/{matchId}/status")
-    public ResponseEntity<ApiResponse<MatchResponse>> updateStatus(@PathVariable Long matchId,
-                                                                     @RequestBody @Valid StatusRequest request) {
-        Optional<Match> matchOpt = matchRepository.findById(matchId);
-        if (matchOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Match not found"));
-        }
-        Match match = matchOpt.get();
+    public Match updateStatus(@PathVariable Long matchId, @RequestBody @Valid StatusRequest request) {
+        Match match = matchRepository.findById(matchId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Match not found"));
         match.setStatus(request.status());
-        Match saved = matchRepository.save(match);
-        return ResponseEntity.ok(ApiResponse.success("Match status updated", MatchResponse.fromEntity(saved)));
+        return matchRepository.save(match);
     }
 
     // ===== compatibility scoring =====
+
+    private double scoreOf(Match match) {
+        return match.getCompatibilityScore() == null ? 0 : match.getCompatibilityScore();
+    }
 
     private double calculateCompatibility(Profile seeker, Profile ownerProfile, Listing listing) {
         double score = 0;

@@ -5,12 +5,14 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.LocalDateTime;
 
 /**
  * Core account entity. Auth is OTP-only (FR-1, FR-2) — no password field.
  */
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Entity
 @Table(name = "users")
 @Data
@@ -42,9 +44,11 @@ public class User {
     private boolean otpVerified = false;
 
     // last OTP issued to this user (kept simple, no separate OTP entity)
+    @JsonIgnore
     @Column(name = "current_otp")
     private String currentOtp;
 
+    @JsonIgnore
     @Column(name = "otp_generated_at")
     private LocalDateTime otpGeneratedAt;
 

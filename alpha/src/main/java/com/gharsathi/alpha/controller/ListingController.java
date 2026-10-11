@@ -3,17 +3,14 @@ package com.gharsathi.alpha.controller;
 import com.gharsathi.alpha.entity.*;
 import com.gharsathi.alpha.repository.ListingRepository;
 import com.gharsathi.alpha.repository.UserRepository;
-import com.gharsathi.alpha.response.ApiResponse;
-import com.gharsathi.alpha.response.ListingResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Flat / roommate listing CRUD + search. FR-9 to FR-14.
@@ -32,15 +29,12 @@ public class ListingController {
 
     // FR-9, FR-10, FR-11: create listing
     @PostMapping
-    public ResponseEntity<ApiResponse<ListingResponse>> createListing(@RequestParam Long userId,
-                                                                        @RequestBody @Valid ListingRequest request) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("User not found"));
-        }
+    public Listing createListing(@RequestParam Long userId, @RequestBody @Valid ListingRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
         Listing listing = Listing.builder()
-                .postedBy(userOpt.get())
+                .postedBy(user)
                 .type(request.type())
                 .location(request.location())
                 .rentMin(request.rentMin())
@@ -51,56 +45,36 @@ public class ListingController {
                 .status(ListingStatus.ACTIVE)
                 .build();
 
-        Listing saved = listingRepository.save(listing);
-        return ResponseEntity.ok(ApiResponse.success("Listing created", ListingResponse.fromEntity(saved)));
+        return listingRepository.save(listing);
     }
 
     @GetMapping("/{listingId}")
-    public ResponseEntity<ApiResponse<ListingResponse>> getListing(@PathVariable Long listingId) {
-        Optional<Listing> listingOpt = listingRepository.findById(listingId);
-        if (listingOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Listing not found"));
-        }
-        return ResponseEntity.ok(ApiResponse.success("Listing fetched", ListingResponse.fromEntity(listingOpt.get())));
+    public Listing getListing(@PathVariable Long listingId) {
+        return listingRepository.findById(listingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Listing not found"));
     }
 
     @GetMapping("/user/{userId}")
-    public ResponseEntity<ApiResponse<List<ListingResponse>>> getListingsByUser(@PathVariable Long userId) {
-        List<ListingResponse> listings = listingRepository.findByPostedById(userId).stream()
-                .map(ListingResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Listings fetched", listings));
+    public List<Listing> getListingsByUser(@PathVariable Long userId) {
+        return listingRepository.findByPostedById(userId);
     }
 
     // FR-13, FR-14: search & filter
     @GetMapping("/search")
-    public ResponseEntity<ApiResponse<List<ListingResponse>>> search(
+    public List<Listing> search(
             @RequestParam(required = false) String location,
             @RequestParam(required = false) Double maxBudget,
             @RequestParam(required = false) GenderPreference genderPreference
     ) {
-        List<ListingResponse> results = listingRepository
-                .search(location, maxBudget, genderPreference, ListingStatus.ACTIVE)
-                .stream()
-                .map(ListingResponse::fromEntity)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success("Search results", results));
+        return listingRepository.search(location, maxBudget, genderPreference, ListingStatus.ACTIVE);
     }
 
-    // FR-12: edit listing. userId passed to confirm ownership (no auth/session layer yet).
+    // FR-12: edit listing. userId passed to confirm ownership.
     @PutMapping("/{listingId}")
-    public ResponseEntity<ApiResponse<ListingResponse>> updateListing(@PathVariable Long listingId,
-                                                                        @RequestParam Long userId,
-                                                                        @RequestBody @Valid ListingRequest request) {
-        Optional<Listing> listingOpt = listingRepository.findById(listingId);
-        if (listingOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Listing not found"));
-        }
-        Listing listing = listingOpt.get();
-
-        if (!listing.getPostedBy().getId().equals(userId)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.failure("Not the owner of this listing"));
-        }
+    public Listing updateListing(@PathVariable Long listingId,
+                                  @RequestParam Long userId,
+                                  @RequestBody @Valid ListingRequest request) {
+        Listing listing = getOwnedListing(listingId, userId);
 
         listing.setType(request.type());
         listing.setLocation(request.location());
@@ -110,34 +84,36 @@ public class ListingController {
         listing.setAmenities(request.amenities());
         listing.setGenderPreference(request.genderPreference());
 
-        Listing saved = listingRepository.save(listing);
-        return ResponseEntity.ok(ApiResponse.success("Listing updated", ListingResponse.fromEntity(saved)));
+        return listingRepository.save(listing);
     }
 
-    // FR-12: deactivate (temporarily hide, can be reactivated by editing status again later)
+    // FR-12: deactivate (temporarily hide)
     @PatchMapping("/{listingId}/deactivate")
-    public ResponseEntity<ApiResponse<Void>> deactivateListing(@PathVariable Long listingId, @RequestParam Long userId) {
-        return changeStatus(listingId, userId, ListingStatus.INACTIVE, "Listing deactivated");
+    public Listing deactivateListing(@PathVariable Long listingId, @RequestParam Long userId) {
+        return changeStatus(listingId, userId, ListingStatus.INACTIVE);
     }
 
     // FR-12: delete (soft delete)
     @DeleteMapping("/{listingId}")
-    public ResponseEntity<ApiResponse<Void>> deleteListing(@PathVariable Long listingId, @RequestParam Long userId) {
-        return changeStatus(listingId, userId, ListingStatus.DELETED, "Listing deleted");
+    public Listing deleteListing(@PathVariable Long listingId, @RequestParam Long userId) {
+        return changeStatus(listingId, userId, ListingStatus.DELETED);
     }
 
-    private ResponseEntity<ApiResponse<Void>> changeStatus(Long listingId, Long userId, ListingStatus status, String successMessage) {
-        Optional<Listing> listingOpt = listingRepository.findById(listingId);
-        if (listingOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure("Listing not found"));
-        }
-        Listing listing = listingOpt.get();
+    // ===== helpers =====
+
+    private Listing getOwnedListing(Long listingId, Long userId) {
+        Listing listing = listingRepository.findById(listingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Listing not found"));
         if (!listing.getPostedBy().getId().equals(userId)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.failure("Not the owner of this listing"));
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not the owner of this listing");
         }
+        return listing;
+    }
+
+    private Listing changeStatus(Long listingId, Long userId, ListingStatus status) {
+        Listing listing = getOwnedListing(listingId, userId);
         listing.setStatus(status);
-        listingRepository.save(listing);
-        return ResponseEntity.ok(ApiResponse.success(successMessage, null));
+        return listingRepository.save(listing);
     }
 
     // ===== Request DTOs =====
