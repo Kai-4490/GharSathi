@@ -1,107 +1,75 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { register } from '../api/auth'
+import { Link, useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
+import AuthCard from '../components/AuthCard'
+import * as authApi from '../api/auth'
+import { toastError } from '../api/client'
+import { REGISTRABLE_ROLES, ROLE_LABEL } from '../constants/enums'
+import { emptyToNull, isValidEmail, isValidMobile, normalizeMobile } from '../utils/normalize'
 
 export default function Register() {
   const navigate = useNavigate()
-  const [form, setForm] = useState({ name: '', email: '', mobileNumber: '', role: 'SEEKER' })
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({ name: '', mobileNumber: '', email: '', role: 'SEEKER' })
+  const [errors, setErrors] = useState({})
+  const [busy, setBusy] = useState(false)
 
-  function updateField(field, value) {
-    setForm((prev) => ({ ...prev, [field]: value }))
-  }
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
-  async function handleSubmit(e) {
+  const submit = async (e) => {
     e.preventDefault()
-    setError('')
-    setLoading(true)
+    const mobile = normalizeMobile(form.mobileNumber)
+    const errs = {}
+    if (!form.name.trim()) errs.name = 'Name is required'
+    if (!isValidMobile(mobile)) errs.mobileNumber = 'Enter a 10-digit mobile number'
+    if (form.email.trim() && !isValidEmail(form.email.trim())) errs.email = 'Enter a valid email address'
+    if (!REGISTRABLE_ROLES.includes(form.role)) errs.role = 'Choose an option'
+    setErrors(errs)
+    if (Object.keys(errs).length) return
+
+    setBusy(true)
     try {
-      const res = await register(form)
-      if (!res.success) {
-        setError(res.message)
-        return
-      }
-      // dev mode: backend returns the OTP inline in the message since no SMS
-      // provider is wired up yet - pass it along so the next screen can show it
-      const otpMatch = res.message.match(/otp=(\d+)/)
-      navigate('/verify-otp', {
-        state: {
-          mobileNumber: form.mobileNumber,
-          devOtp: otpMatch ? otpMatch[1] : null
-        }
-      })
+      const body = emptyToNull({ name: form.name.trim(), email: form.email.trim(), mobileNumber: mobile, role: form.role })
+      await authApi.register(body)
+      toast.success('Registered. Now verify your mobile number.')
+      navigate('/verify-otp', { state: { mobileNumber: mobile } })
     } catch (err) {
-      setError(err.response?.data?.message || 'Something went wrong. Try again.')
+      toastError(err, 'Registration failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
   return (
-    <div className="page">
-      <div className="page-content">
-        <div className="auth-shell">
-          <h1>Find your next flatmate</h1>
-          <p className="auth-subtitle">Create an account to start browsing or posting.</p>
-
-          {error && <div className="banner banner-error">{error}</div>}
-
-          <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label htmlFor="name">Full name</label>
-              <input
-                id="name"
-                type="text"
-                required
-                value={form.name}
-                onChange={(e) => updateField('name', e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="email">Email (optional)</label>
-              <input
-                id="email"
-                type="email"
-                value={form.email}
-                onChange={(e) => updateField('email', e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="mobileNumber">Mobile number</label>
-              <input
-                id="mobileNumber"
-                type="tel"
-                required
-                value={form.mobileNumber}
-                onChange={(e) => updateField('mobileNumber', e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="role">I am a...</label>
-              <select
-                id="role"
-                value={form.role}
-                onChange={(e) => updateField('role', e.target.value)}
-              >
-                <option value="SEEKER">Seeker (looking for a flat/roommate)</option>
-                <option value="FLAT_POSTER">Flat Poster (have a place to share)</option>
-              </select>
-            </div>
-
-            <button className="btn-primary" type="submit" disabled={loading}>
-              {loading ? 'Creating account...' : 'Create account'}
-            </button>
-          </form>
-
-          <p style={{ marginTop: '24px', fontSize: '0.9rem' }}>
-            Already have an account? <Link to="/login">Log in</Link>
-          </p>
+    <AuthCard
+      title="Create your account"
+      subtitle="Find a flat or a roommate who matches how you live."
+      footer={<>Already registered? <Link to="/login" className="font-medium text-brand-700 hover:underline">Log in</Link></>}
+    >
+      <form onSubmit={submit} noValidate className="space-y-4">
+        <div>
+          <label htmlFor="name" className="label">Full name</label>
+          <input id="name" className="input" value={form.name} onChange={set('name')} autoComplete="name" aria-invalid={!!errors.name} />
+          {errors.name && <p className="field-error">{errors.name}</p>}
         </div>
-      </div>
-    </div>
+        <div>
+          <label htmlFor="mobile" className="label">Mobile number</label>
+          <input id="mobile" type="tel" inputMode="numeric" className="input" value={form.mobileNumber} onChange={set('mobileNumber')} placeholder="98XXXXXXXX" autoComplete="tel" aria-invalid={!!errors.mobileNumber} />
+          {errors.mobileNumber && <p className="field-error">{errors.mobileNumber}</p>}
+        </div>
+        <div>
+          <label htmlFor="email" className="label">Email (optional)</label>
+          <input id="email" type="email" className="input" value={form.email} onChange={set('email')} autoComplete="email" aria-invalid={!!errors.email} />
+          {errors.email && <p className="field-error">{errors.email}</p>}
+        </div>
+        <div>
+          <label htmlFor="role" className="label">I am…</label>
+          <select id="role" className="input" value={form.role} onChange={set('role')}>
+            {REGISTRABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+          </select>
+          {errors.role && <p className="field-error">{errors.role}</p>}
+        </div>
+        <button type="submit" className="btn-primary w-full" disabled={busy}>{busy ? 'Creating account…' : 'Register'}</button>
+      </form>
+    </AuthCard>
   )
 }

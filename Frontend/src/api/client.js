@@ -1,40 +1,58 @@
 import axios from 'axios'
+import toast from 'react-hot-toast'
 
-const client = axios.create({
-  baseURL: 'http://localhost:8080',
-  headers: {
-    'Content-Type': 'application/json'
-  }
-})
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+export const TOKEN_KEY = 'gs_token'
+export const USER_KEY = 'gs_user'
 
-// attach the stored JWT to every outgoing request, if present
+const client = axios.create({ baseURL: API_URL, headers: { 'Content-Type': 'application/json' } })
+
 client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token && !config.url?.startsWith('/api/auth/')) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
 
-// if the backend says our token is invalid/expired/insufficient, clear session
-// and bounce to login rather than showing a confusing broken page
+let redirecting = false
+
 client.interceptors.response.use(
-  (response) => response,
+  (res) => res,
   (error) => {
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      // only force-logout for calls made WITH a token - an unauthenticated call
-      // failing (e.g. before login) shouldn't wipe anything
-      const hadToken = Boolean(localStorage.getItem('token'))
-      if (hadToken) {
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login'
-        }
+    const status = error.response?.status
+    const message = error.response?.data?.message
+    const isAuthCall = error.config?.url?.startsWith('/api/auth/')
+
+    // Security failures have no body: 401, or 403 without a message => session is gone.
+    if (!isAuthCall && (status === 401 || (status === 403 && !message))) {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_KEY)
+      if (!redirecting && window.location.pathname !== '/login') {
+        redirecting = true
+        toast.error('Session expired')
+        setTimeout(() => {
+          redirecting = false
+          window.location.assign('/login')
+        }, 600)
       }
+      error.handled = true
     }
     return Promise.reject(error)
-  }
+  },
 )
+
+export function errorMessage(error, fallback = 'Something went wrong') {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (!error?.response && error?.message === 'Network Error')
+    return 'Cannot reach the server. Is the backend running on port 8080?'
+  return fallback
+}
+
+// Toast unless the interceptor already handled it (session expiry).
+export function toastError(error, fallback) {
+  if (error?.handled) return
+  toast.error(errorMessage(error, fallback))
+}
 
 export default client

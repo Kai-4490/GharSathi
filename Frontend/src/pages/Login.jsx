@@ -1,125 +1,101 @@
 import { useState } from 'react'
-import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { requestOtp, login as loginApi } from '../api/auth'
-import { useAuth } from '../context/AuthContext'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
+import AuthCard, { DevOtpHint } from '../components/AuthCard'
+import * as authApi from '../api/auth'
+import { errorMessage, toastError } from '../api/client'
+import { homeFor, useAuth } from '../context/AuthContext'
+import { isValidMobile, normalizeMobile } from '../utils/normalize'
 
 export default function Login() {
-  const navigate = useNavigate()
-  const location = useLocation()
   const { login } = useAuth()
-
-  const [mobileNumber, setMobileNumber] = useState(location.state?.mobileNumber || '')
+  const navigate = useNavigate()
+  const { state } = useLocation()
+  const [mobile, setMobile] = useState(state?.mobileNumber || '')
   const [otp, setOtp] = useState('')
-  const [step, setStep] = useState('mobile') // 'mobile' | 'otp'
-  const [devOtp, setDevOtp] = useState(null)
+  const [step, setStep] = useState(1)
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [needsVerify, setNeedsVerify] = useState(false)
+  const [busy, setBusy] = useState(false)
 
-  async function handleRequestOtp(e) {
-    e.preventDefault()
+  const requestOtp = async (e) => {
+    e?.preventDefault()
+    const m = normalizeMobile(mobile)
+    if (!isValidMobile(m)) return setError('Enter a 10-digit mobile number')
     setError('')
-    setLoading(true)
+    setBusy(true)
     try {
-      const res = await requestOtp({ mobileNumber })
-      if (!res.success) {
-        setError(res.message)
-        return
-      }
-      const otpMatch = res.message.match(/otp=(\d+)/)
-      setDevOtp(otpMatch ? otpMatch[1] : null)
-      setStep('otp')
+      await authApi.requestOtp(m)
+      toast.success('OTP sent')
+      setStep(2)
     } catch (err) {
-      setError(err.response?.data?.message || 'Something went wrong. Try again.')
+      setError(errorMessage(err, 'Could not send OTP'))
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  async function handleLogin(e) {
+  const submitLogin = async (e) => {
     e.preventDefault()
+    if (!/^\d{6}$/.test(otp)) return setError('Enter the 6-digit OTP')
     setError('')
-    setLoading(true)
+    setNeedsVerify(false)
+    setBusy(true)
     try {
-      const res = await loginApi({ mobileNumber, otp })
-      if (!res.success) {
-        setError(res.message)
-        return
-      }
-      login(res.data) // res.data is { token, user }
-      navigate('/dashboard')
+      const { token, user } = await authApi.login(normalizeMobile(mobile), otp)
+      login(token, user)
+      navigate(homeFor(user.role), { replace: true })
     } catch (err) {
-      setError(err.response?.data?.message || 'Something went wrong. Try again.')
+      const msg = errorMessage(err, 'Login failed')
+      setError(msg)
+      if (err.response?.status === 403 && /not verified/i.test(msg)) setNeedsVerify(true)
+      else toastError(err, 'Login failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
+  }
+
+  const goVerify = async () => {
+    const m = normalizeMobile(mobile)
+    try {
+      await authApi.requestOtp(m)
+    } catch (err) {
+      toastError(err, 'Could not send OTP')
+    }
+    navigate('/verify-otp', { state: { mobileNumber: m } })
   }
 
   return (
-    <div className="page">
-      <div className="page-content">
-        <div className="auth-shell">
-          <h1>Welcome back</h1>
-          <p className="auth-subtitle">
-            {step === 'mobile' ? "We'll text you a one-time code." : `Enter the code sent to ${mobileNumber}.`}
-          </p>
-
-          {devOtp && step === 'otp' && (
-            <div className="banner banner-dev-otp">
-              Dev mode - no SMS provider connected yet. Your code is: <strong>{devOtp}</strong>
-            </div>
-          )}
-
-          {error && <div className="banner banner-error">{error}</div>}
-
-          {step === 'mobile' ? (
-            <form onSubmit={handleRequestOtp}>
-              <div className="field">
-                <label htmlFor="mobileNumber">Mobile number</label>
-                <input
-                  id="mobileNumber"
-                  type="tel"
-                  required
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                />
-              </div>
-              <button className="btn-primary" type="submit" disabled={loading}>
-                {loading ? 'Sending code...' : 'Send code'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleLogin}>
-              <div className="field">
-                <label htmlFor="otp">6-digit code</label>
-                <input
-                  id="otp"
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  required
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                />
-              </div>
-              <button className="btn-primary" type="submit" disabled={loading}>
-                {loading ? 'Logging in...' : 'Log in'}
-              </button>
-              <button
-                type="button"
-                className="btn-link"
-                style={{ marginTop: '12px' }}
-                onClick={() => setStep('mobile')}
-              >
-                Use a different number
-              </button>
-            </form>
-          )}
-
-          <p style={{ marginTop: '24px', fontSize: '0.9rem' }}>
-            New here? <Link to="/register">Create an account</Link>
-          </p>
-        </div>
-      </div>
-    </div>
+    <AuthCard
+      title="Log in"
+      subtitle={step === 1 ? 'We will send a one-time password to your mobile number.' : `Enter the OTP sent to ${normalizeMobile(mobile)}.`}
+      footer={<>New here? <Link to="/register" className="font-medium text-brand-700 hover:underline">Create an account</Link></>}
+    >
+      {step === 1 ? (
+        <form onSubmit={requestOtp} noValidate className="space-y-4">
+          <div>
+            <label htmlFor="l-mobile" className="label">Mobile number</label>
+            <input id="l-mobile" type="tel" inputMode="numeric" className="input" value={mobile} onChange={(e) => setMobile(e.target.value)} autoComplete="tel" />
+          </div>
+          {error && <p className="field-error" role="alert">{error}</p>}
+          <button type="submit" className="btn-primary w-full" disabled={busy}>{busy ? 'Sending…' : 'Send OTP'}</button>
+        </form>
+      ) : (
+        <form onSubmit={submitLogin} noValidate className="space-y-4">
+          <div>
+            <label htmlFor="l-otp" className="label">OTP</label>
+            <input id="l-otp" inputMode="numeric" maxLength={6} autoComplete="one-time-code" className="input tracking-widest" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} autoFocus />
+          </div>
+          {error && <p className="field-error" role="alert">{error}</p>}
+          {needsVerify && <button type="button" className="btn-secondary w-full" onClick={goVerify}>Verify my account</button>}
+          <button type="submit" className="btn-primary w-full" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>
+          <div className="flex justify-between text-sm">
+            <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => { setStep(1); setOtp(''); setError(''); setNeedsVerify(false) }}>Change number</button>
+            <button type="button" className="font-medium text-brand-700 hover:underline disabled:opacity-50" disabled={busy} onClick={requestOtp}>Resend OTP</button>
+          </div>
+        </form>
+      )}
+      <DevOtpHint />
+    </AuthCard>
   )
 }
